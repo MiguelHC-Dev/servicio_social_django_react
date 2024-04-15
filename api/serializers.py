@@ -1,11 +1,30 @@
 from rest_framework import serializers
 from .models import Carrera, Usuario, TiposFormatos, Formato, ServicioSocial
 
+class DocumentSerializer(serializers.Serializer):
+    nombre = serializers.CharField(max_length=100)
+    apellido = serializers.CharField(max_length=100)
+    carrera = serializers.CharField(max_length=100)
+    numero_control = serializers.CharField(max_length=20)
+    dependencia = serializers.CharField(max_length=100)
+    nombre_programa = serializers.CharField(max_length=100)
+    titular = serializers.CharField(max_length=100)
+    cargo = serializers.CharField(max_length=100)
+    atencion_nombre = serializers.CharField(max_length=100)
+    atencion_cargo = serializers.CharField(max_length=100)
+    
+
+
 
 class CarreraSerializer(serializers.ModelSerializer):
+    nombre_carrera_display = serializers.SerializerMethodField()
+
     class Meta:
         model = Carrera
-        fields = '__all__'
+        fields = ['id', 'nombre_carrera', 'nombre_carrera_display']
+
+    def get_nombre_carrera_display(self, obj):
+        return obj.get_nombre_carrera_display()
 
 
 class UsuarioSerializer(serializers.ModelSerializer):

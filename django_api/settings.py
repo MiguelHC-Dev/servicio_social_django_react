@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',	
     'rest_framework',
+    'coreapi',
     'api',
     'rest_framework.authtoken',
 ]
@@ -147,3 +148,8 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 AUTH_USER_MODEL = 'api.Usuario'
+
+REST_FRAMEWORK = {
+    ...: ...,
+    "DEFAULT_SCHEMA_CLASS": "rest_framework.schemas.coreapi.AutoSchema",
+}

@@ -73,7 +73,7 @@ class Formato(models.Model):
         super(Formato, self).delete(*args, **kwargs)
 
 class ServicioSocial(models.Model):
-    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE)
+    usuario = models.OneToOneField(Usuario, on_delete=models.CASCADE, unique=True)  # Cambio aplicado aquí
     nombre_programa = models.CharField(max_length=255)
     area = models.CharField(max_length=255)
     dependencia_organizacion = models.CharField(max_length=255)
@@ -83,7 +83,7 @@ class ServicioSocial(models.Model):
     atencion_a_cargo = models.CharField(max_length=255, null=True, blank=True)
 
     def __str__(self):
-        return f"{self.usuario.nombre} - {self.nombre_programa}"
-    
+        return f"{self.usuario.get_full_name()} - {self.nombre_programa}"  # Asegúrate de que `nombre` sea el campo correcto en Usuario
+
     class Meta:
         verbose_name_plural = "Servicio Social"

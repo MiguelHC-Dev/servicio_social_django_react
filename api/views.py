@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from .models import Carrera, Usuario, TiposFormatos, Formato, ServicioSocial
-from .serializers import CarreraSerializer, UsuarioSerializer, TiposFormatosSerializer, FormatoSerializer, ServicioSocialSerializer
-from rest_framework.decorators import api_view
+from .serializers import CarreraSerializer, UsuarioSerializer, TiposFormatosSerializer, FormatoSerializer, ServicioSocialSerializer, DocumentSerializer
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
@@ -9,8 +9,134 @@ from django.shortcuts import get_object_or_404
 from django.db import DatabaseError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import TokenAuthentication
+from docx import Document
+import io
+import os
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from docx.shared import Pt
+from docx import Document
+from django.conf import settings
+from django.http import FileResponse
+import win32com.client as win32
+import pythoncom  # Importar pythoncom para CoInitialize
 
 
+
+class DocumentAPIView(APIView):
+    def post(self, request):
+        serializer = DocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            pythoncom.CoInitialize()  # Inicializar el COM en este hilo
+            try:
+                word = win32.gencache.EnsureDispatch('Word.Application')
+                doc_path = os.path.join(settings.MEDIA_ROOT, 'formatos', 'formato.docx')
+                doc = word.Documents.Open(doc_path)
+                doc.Activate()
+
+                # Reemplaza los placeholders en el documento
+                replacements = {
+                    '${NOMBRE}': serializer.validated_data['nombre'],
+                    '${APELLIDO}': serializer.validated_data['apellido'],
+                    '${NUMERO_CONTROL}': serializer.validated_data['numero_control'],
+                    '${CARRERA}': serializer.validated_data['carrera'],
+                    '${DEPENDENCIA}': serializer.validated_data['dependencia'],
+                    '${NOMBRE_PROGRAMA}': serializer.validated_data['nombre_programa'],
+                    '${TITULAR}': serializer.validated_data['titular'],
+                    '${CARGO}': serializer.validated_data['cargo'],
+                    '${ATENCION_NOMBRE}': serializer.validated_data['atencion_nombre'],
+                    '${ATENCION_CARGO}': serializer.validated_data['atencion_cargo'],
+                }
+
+                for key, value in replacements.items():
+                    find = word.Selection.Find
+                    find.Text = key
+                    find.Replacement.Text = value
+                    find.Execute(Replace=win32.constants.wdReplaceAll)
+
+                # Asegurarse de que el directorio temporal existe
+                temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')
+                if not os.path.exists(temp_dir):
+                    os.makedirs(temp_dir)
+
+                # Guardar el documento editado en un buffer en memoria
+                temp_doc_path = os.path.join(temp_dir, f"temp_formato_{serializer.validated_data['numero_control']}.docx")
+                doc.SaveAs(temp_doc_path)
+                doc.Close()
+                word.Quit()
+
+                # Leer el archivo en el buffer
+                buffer = io.BytesIO()
+                with open(temp_doc_path, 'rb') as file:
+                    buffer.write(file.read())
+                buffer.seek(0)
+
+                # Crear una respuesta HTTP con el documento
+                response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                response['Content-Disposition'] = f'attachment; filename="documento_personalizado_{serializer.validated_data["numero_control"]}.docx"'
+
+                # Eliminar el archivo temporal
+                os.remove(temp_doc_path)
+
+                return response
+            finally:
+                pythoncom.CoUninitialize()  # Desinicializar el COM en este hilo
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PATCH'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def cambiar_contrasena(request, user_id):
+    # Asegúrate de que el usuario que hace la solicitud sea el mismo que el usuario cuya contraseña se va a cambiar o que sea un superusuario
+    if request.user.id != user_id and not request.user.is_superuser:
+        return Response({'error': 'No tienes permiso para realizar esta acción.'}, status=status.HTTP_403_FORBIDDEN)
+
+    contrasena_anterior = request.data.get('contrasena_anterior')
+    nueva_contrasena = request.data.get('nueva_contrasena')
+
+    if not contrasena_anterior:
+        return Response({'error': 'Falta el campo requerido: contraseña anterior.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not nueva_contrasena:
+        return Response({'error': 'Falta el campo requerido: nueva contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Encuentra el usuario basándote en el ID proporcionado
+    try:
+        usuario = Usuario.objects.get(id=user_id)
+    except Usuario.DoesNotExist:
+        return Response({'error': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Comprueba que la contraseña anterior sea correcta
+    if not usuario.check_password(contrasena_anterior):
+        return Response({'error': 'La contraseña anterior no es correcta.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Establece y guarda la nueva contraseña
+    try:
+        usuario.set_password(nueva_contrasena)
+        usuario.save()
+    except Exception as e:
+        return Response({'error': 'Error al cambiar la contraseña.', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({'message': 'La contraseña ha sido cambiada exitosamente.'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication])  # Esto requiere que la solicitud incluya un token de autenticación válido
+@permission_classes([IsAuthenticated])  # Esto requiere que la solicitud incluya un header de autorización válido
+def obtener_servicio_social_por_usuario(request, user_id):
+    """
+    Vista para obtener el servicio social de un usuario específico por su ID.
+    """
+    try:
+        servicio_social = ServicioSocial.objects.get(usuario__id=user_id)
+    except ServicioSocial.DoesNotExist:
+        return Response({'error': 'No se encontró el servicio social para el usuario especificado.'}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = ServicioSocialSerializer(servicio_social)
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])

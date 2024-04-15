@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import re_path, path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework.documentation import include_docs_urls
 from api import views
 
 router = DefaultRouter()
@@ -29,9 +30,15 @@ router.register(r'serviciosocial', views.ServicioSocialViewSet)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include(router.urls)),
+    path('servicio-social/usuario/<int:user_id>/', views.obtener_servicio_social_por_usuario, name='obtener_servicio_social_por_usuario'),
+    path('cambiar-contrasena/<int:user_id>/', views.cambiar_contrasena, name='cambiar_contrasena'),
     re_path('login', views.login),
     re_path('register', views.register),
     re_path('profile', views.profile),
+    path('api/document/', views.DocumentAPIView.as_view(), name='create_document'),
+
+    path('docs/', include_docs_urls(title="API Sistema Servicio"))
+    
 ]
 
 
