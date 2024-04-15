@@ -5,7 +5,6 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
-from django.shortcuts import get_object_or_404
 from django.db import DatabaseError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError
@@ -16,73 +15,54 @@ import io
 import os
 from django.http import HttpResponse
 from rest_framework.views import APIView
-from docx.shared import Pt
 from docx import Document
 from django.conf import settings
-from django.http import FileResponse
-import win32com.client as win32
-import pythoncom  # Importar pythoncom para CoInitialize
-
-
+from python_docx_replace import docx_replace  
 
 class DocumentAPIView(APIView):
     def post(self, request):
         serializer = DocumentSerializer(data=request.data)
         if serializer.is_valid():
-            pythoncom.CoInitialize()  # Inicializar el COM en este hilo
             try:
-                word = win32.gencache.EnsureDispatch('Word.Application')
                 doc_path = os.path.join(settings.MEDIA_ROOT, 'formatos', 'formato.docx')
-                doc = word.Documents.Open(doc_path)
-                doc.Activate()
+                doc = Document(doc_path)
+                
+                # Imprimir información sobre el documento para depuración
+                print(f"Document loaded with {len(doc.paragraphs)} paragraphs.")
 
-                # Reemplaza los placeholders en el documento
                 replacements = {
-                    '${NOMBRE}': serializer.validated_data['nombre'],
-                    '${APELLIDO}': serializer.validated_data['apellido'],
-                    '${NUMERO_CONTROL}': serializer.validated_data['numero_control'],
-                    '${CARRERA}': serializer.validated_data['carrera'],
-                    '${DEPENDENCIA}': serializer.validated_data['dependencia'],
-                    '${NOMBRE_PROGRAMA}': serializer.validated_data['nombre_programa'],
-                    '${TITULAR}': serializer.validated_data['titular'],
-                    '${CARGO}': serializer.validated_data['cargo'],
-                    '${ATENCION_NOMBRE}': serializer.validated_data['atencion_nombre'],
-                    '${ATENCION_CARGO}': serializer.validated_data['atencion_cargo'],
+                    'nombre': serializer.validated_data['nombre'],
+                    'apellido': serializer.validated_data['apellido'],
+                    'numero_control': serializer.validated_data['numero_control'],
+                    'carrera': serializer.validated_data['carrera'],
+                    'dependencia': serializer.validated_data['dependencia'],
+                    'nombre_programa': serializer.validated_data['nombre_programa'],
+                    'titular': serializer.validated_data['titular'],
+                    'cargo': serializer.validated_data['cargo'],
+                    'atencion_nombre': serializer.validated_data['atencion_nombre'],
+                    'atencion_cargo': serializer.validated_data['atencion_cargo'],
                 }
 
+                # Imprimir las claves y valores para verificar
+                print("Replacements:")
                 for key, value in replacements.items():
-                    find = word.Selection.Find
-                    find.Text = key
-                    find.Replacement.Text = value
-                    find.Execute(Replace=win32.constants.wdReplaceAll)
+                    print(f"  {key}: {value}")
 
-                # Asegurarse de que el directorio temporal existe
-                temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')
-                if not os.path.exists(temp_dir):
-                    os.makedirs(temp_dir)
+                # Llamar a docx_replace con el documento y las sustituciones
+                docx_replace(doc, **replacements)
 
-                # Guardar el documento editado en un buffer en memoria
-                temp_doc_path = os.path.join(temp_dir, f"temp_formato_{serializer.validated_data['numero_control']}.docx")
-                doc.SaveAs(temp_doc_path)
-                doc.Close()
-                word.Quit()
-
-                # Leer el archivo en el buffer
                 buffer = io.BytesIO()
-                with open(temp_doc_path, 'rb') as file:
-                    buffer.write(file.read())
+                doc.save(buffer)  # Guardar el documento modificado en el buffer
                 buffer.seek(0)
 
-                # Crear una respuesta HTTP con el documento
                 response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
                 response['Content-Disposition'] = f'attachment; filename="documento_personalizado_{serializer.validated_data["numero_control"]}.docx"'
 
-                # Eliminar el archivo temporal
-                os.remove(temp_doc_path)
-
                 return response
-            finally:
-                pythoncom.CoUninitialize()  # Desinicializar el COM en este hilo
+            except Exception as e:
+                print("Error al procesar el documento:", str(e))
+                return Response({'error': 'Error al procesar el documento.', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
